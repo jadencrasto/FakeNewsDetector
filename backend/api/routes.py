@@ -4,9 +4,11 @@ API routes for scam detection
 from flask import Blueprint, request, jsonify
 import hashlib
 import time
+from detector.analyzer import ScamAnalyzer
 
 # Create Blueprint
 api_bp = Blueprint('api', __name__)
+analyzer = ScamAnalyzer()
 
 # We'll import the detector in Part 3B
 # For now, we'll use mock responses
@@ -26,12 +28,9 @@ def analyze():
         "risk_score": 85,
         "classification": "scam",
         "indicators": [...],
-        "recommendations": [...],
-        "analysis_time_ms": 245
+        "recommendations": [...]
     }
     """
-    start_time = time.time()
-    
     try:
         # Get request data
         data = request.get_json()
@@ -58,25 +57,8 @@ def analyze():
                 'message': 'Input exceeds maximum length of 5000 characters'
             }), 400
         
-        # Calculate analysis time
-        analysis_time = int((time.time() - start_time) * 1000)
-        
-        # TODO: In Part 3B, we'll call the actual detector here
-        # For now, return a mock response
-        result = {
-            'input': input_text[:100] + '...' if len(input_text) > 100 else input_text,
-            'input_hash': hashlib.sha256(input_text.encode()).hexdigest()[:16],
-            'risk_score': 0,
-            'classification': 'safe',
-            'indicators': [],
-            'recommendations': [
-                '✅ No immediate threats detected',
-                '💡 System is in development mode'
-            ],
-            'urls_found': [],
-            'analysis_time_ms': analysis_time,
-            'timestamp': time.strftime('%Y-%m-%d %H:%M:%S')
-        }
+        # 🎯 ACTUAL ANALYSIS HAPPENS HERE!
+        result = analyzer.analyze(input_text)
         
         return jsonify(result), 200
         
@@ -85,7 +67,6 @@ def analyze():
             'error': 'Analysis failed',
             'message': str(e)
         }), 500
-
 
 @api_bp.route('/report', methods=['POST'])
 def report_scam():
