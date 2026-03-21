@@ -36,13 +36,28 @@ class URLChecker:
     }
     
     def __init__(self):
+        # Pattern for full URLs with http/https
         self.url_pattern = re.compile(
             r'http[s]?://(?:[a-zA-Z]|[0-9]|[$-_@.&+]|[!*\\(\\),]|(?:%[0-9a-fA-F][0-9a-fA-F]))+'
+        )
+        # Pattern for domains without http/https (e.g., "paytm-prize.tk")
+        self.domain_pattern = re.compile(
+            r'\b(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:tk|ml|ga|cf|gq|com|in|org|net|xyz|top|click|link)\b',
+            re.IGNORECASE
         )
     
     def extract_urls(self, text):
         """Extract all URLs from text"""
+        # Find URLs with http/https
         urls = self.url_pattern.findall(text)
+        
+        # Also find domains without http/https and add http:// prefix
+        domains = self.domain_pattern.findall(text)
+        for domain in domains:
+            # Don't add duplicates
+            if domain not in urls and f'http://{domain}' not in urls and f'https://{domain}' not in urls:
+                urls.append(f'http://{domain}')  # Add http:// prefix for analysis
+        
         return urls
     
     def analyze_url(self, url):
@@ -60,7 +75,24 @@ class URLChecker:
         parsed = urlparse(url)
         extracted = tldextract.extract(url)
         
-        # Check 1: HTTP vs HTTPS
+        # NEW: Check if it's a known legitimate domain - give it a pass
+        domain_full = f"{extracted.domain}.{extracted.suffix}".lower()
+        trusted_domains = ['amazon.in', 'amazon.com', 'flipkart.com', 'paytm.com', 
+                        'onlinesbi.sbi', 'sbi.co.in', 'hdfcbank.com', 'icicibank.com',
+                        'gov.in', 'nic.in', 'india.gov.in']
+    
+        if any(trusted in domain_full for trusted in trusted_domains):
+            # It's a legitimate domain - minimal score
+            if parsed.scheme == 'http':
+                score += 5  # Still penalize HTTP a bit
+                indicators.append({
+                    'type': 'security',
+                    'severity': 'low',
+                    'description': 'Known legitimate site but using HTTP instead of HTTPS'
+                })
+            return min(score, 10), indicators  # Max 10 points for legitimate domains
+    
+        # Check 1: HTTP vs HTTPS (kept at 15)
         if parsed.scheme == 'http':
             score += 15
             indicators.append({
@@ -69,7 +101,7 @@ class URLChecker:
                 'description': f'URL not using HTTPS (insecure): {url[:50]}...'
             })
         
-        # Check 2: IP address instead of domain
+        # Check 2: IP address instead of domain (kept at 30)
         ip_pattern = r'\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}'
         if re.search(ip_pattern, parsed.netloc):
             score += 30
@@ -79,16 +111,16 @@ class URLChecker:
                 'description': 'URL uses IP address instead of domain name'
             })
         
-        # Check 3: Suspicious TLD
+        # Check 3: Suspicious TLD (increased from 20 to 35)
         if extracted.suffix in self.SUSPICIOUS_TLDS:
-            score += 20
+            score += 35
             indicators.append({
                 'type': 'domain',
-                'severity': 'high',
+                'severity': 'critical',
                 'description': f'Suspicious domain extension: .{extracted.suffix}'
             })
         
-        # Check 4: URL shortener
+        # Check 4: URL shortener (kept at 15)
         if any(shortener in url.lower() for shortener in self.URL_SHORTENERS):
             score += 15
             indicators.append({
@@ -115,19 +147,19 @@ class URLChecker:
                 'description': f'Multiple subdomains: {extracted.subdomain}'
             })
         
-        # Check 7: Typosquatting detection
+        # Check 7: Typosquatting detection (increased scoring)
         typosquat_score, typosquat_indicators = self._check_typosquatting(extracted.domain)
         score += typosquat_score
         indicators.extend(typosquat_indicators)
         
-        # Check 8: Suspicious keywords in URL
+        # Check 8: Suspicious keywords in URL (increased from 5 to 10)
         suspicious_url_keywords = ['verify', 'secure', 'account', 'update', 'login', 'banking', 'confirm']
         for keyword in suspicious_url_keywords:
             if keyword in url.lower():
-                score += 5
+                score += 10
                 indicators.append({
                     'type': 'url_content',
-                    'severity': 'low',
+                    'severity': 'medium',
                     'description': f'Suspicious keyword in URL: {keyword}'
                 })
                 break
@@ -153,7 +185,7 @@ class URLChecker:
                     })
                     break
         
-        # Check for common typosquatting patterns
+        # Check for common typosquatting patterns (increased from 15 to 20)
         typo_patterns = [
             (r'(.)\1{2,}', 'Repeated characters'),  # gooogle.com
             (r'\d', 'Numbers in brand name'),        # amaz0n.com
@@ -163,7 +195,7 @@ class URLChecker:
             if re.search(pattern, domain_lower):
                 for brand in self.LEGITIMATE_DOMAINS.keys():
                     if brand in domain_lower:
-                        score += 15
+                        score += 20
                         indicators.append({
                             'type': 'typosquatting',
                             'severity': 'high',

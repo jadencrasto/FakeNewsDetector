@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
-import { ShieldAlert, ShieldCheck, AlertTriangle, AlertCircle, CheckCircle2, Link2 } from 'lucide-react';
-import { AnalysisResult } from './types';
+import { ShieldAlert, ShieldCheck, AlertTriangle, AlertCircle, CheckCircle2, Link2, Newspaper } from 'lucide-react';
+import { AnalysisResult, AppMode } from './types';
 import RiskMeter from './RiskMeter';
 import SeverityBadge from './SeverityBadge';
 import { toast } from 'sonner';
@@ -8,9 +8,10 @@ import { toast } from 'sonner';
 interface ResultsSectionProps {
   result: AnalysisResult;
   onReset: () => void;
+  mode: AppMode;
 }
 
-const classificationConfig = {
+const classificationConfig: Record<string, { icon: typeof ShieldAlert; label: string; title: string; classes: string }> = {
   scam: {
     icon: ShieldAlert,
     label: 'SCAM',
@@ -29,11 +30,31 @@ const classificationConfig = {
     title: 'Looks Safe to Us',
     classes: 'bg-safe/10 border-safe/20 text-safe',
   },
+  verified: {
+    icon: CheckCircle2,
+    label: 'VERIFIED',
+    title: 'News Appears Credible',
+    classes: 'bg-safe/10 border-safe/20 text-safe',
+  },
+  unverified: {
+    icon: AlertTriangle,
+    label: 'UNVERIFIED',
+    title: 'Could Not Verify This News',
+    classes: 'bg-suspicious/10 border-suspicious/20 text-suspicious',
+  },
+  false: {
+    icon: ShieldAlert,
+    label: 'FALSE',
+    title: 'Likely Fake News',
+    classes: 'bg-scam/10 border-scam/20 text-scam',
+  },
 };
 
-const ResultsSection = ({ result, onReset }: ResultsSectionProps) => {
-  const config = classificationConfig[result.classification];
+const ResultsSection = ({ result, onReset, mode }: ResultsSectionProps) => {
+  const config = classificationConfig[result.classification] || classificationConfig.safe;
   const Icon = config.icon;
+  const isNews = mode === 'news';
+  const scoreLabel = isNews ? 'Credibility' : 'Risk Score';
 
   return (
     <motion.section
@@ -43,11 +64,10 @@ const ResultsSection = ({ result, onReset }: ResultsSectionProps) => {
       transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       className="space-y-6"
     >
-      {/* Main Risk Card */}
       <div className="bg-card border border-border rounded-3xl p-8 overflow-hidden relative">
         <div className="absolute top-0 right-0 -mr-20 -mt-20 h-60 w-60 rounded-full bg-primary/5 blur-3xl" />
         <div className="flex flex-col md:flex-row items-center gap-8 relative z-10">
-          <RiskMeter score={result.risk_score} />
+          <RiskMeter score={result.risk_score} label={scoreLabel} />
           <div className="flex-1 text-center md:text-left space-y-4">
             <div className="space-y-2">
               <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-black uppercase tracking-widest ${config.classes}`}>
@@ -64,25 +84,23 @@ const ResultsSection = ({ result, onReset }: ResultsSectionProps) => {
                 onClick={onReset}
                 className="px-4 py-2 rounded-xl bg-secondary hover:bg-secondary/80 text-secondary-foreground text-sm font-bold transition-colors"
               >
-                Analyze Another
+                {isNews ? 'Verify Another' : 'Analyze Another'}
               </button>
               <button
-                onClick={() => toast.success('Reported as scam. Thank you!')}
+                onClick={() => toast.success(isNews ? 'Reported as fake news. Thank you!' : 'Reported as scam. Thank you!')}
                 className="px-4 py-2 rounded-xl border border-scam/30 text-scam hover:bg-scam/10 text-sm font-bold transition-colors"
               >
-                Report as Scam
+                {isNews ? 'Report as Fake' : 'Report as Scam'}
               </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Grid */}
       <div className="grid md:grid-cols-2 gap-6">
-        {/* Indicators */}
         <div className="bg-surface border border-border rounded-2xl p-6">
           <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <AlertCircle className="w-4 h-4" /> Risk Indicators
+            <AlertCircle className="w-4 h-4" /> {isNews ? 'Credibility Indicators' : 'Risk Indicators'}
           </h4>
           <div className="space-y-3">
             {result.indicators.map((ind, i) => (
@@ -103,10 +121,9 @@ const ResultsSection = ({ result, onReset }: ResultsSectionProps) => {
           </div>
         </div>
 
-        {/* Recommendations */}
         <div className="bg-surface border border-border rounded-2xl p-6">
           <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <CheckCircle2 className="w-4 h-4" /> Safety Steps
+            <CheckCircle2 className="w-4 h-4" /> {isNews ? 'Verification Notes' : 'Safety Steps'}
           </h4>
           <ul className="space-y-3">
             {result.recommendations.map((rec, i) => (
@@ -125,14 +142,13 @@ const ResultsSection = ({ result, onReset }: ResultsSectionProps) => {
         </div>
       </div>
 
-      {/* URLs Found */}
-      {result.urls_found.length > 0 && (
+      {(result.urls_found?.length ?? 0) > 0 && (
         <div className="bg-surface border border-border rounded-2xl p-6">
           <h4 className="text-sm font-bold text-muted-foreground uppercase tracking-widest mb-4 flex items-center gap-2">
-            <Link2 className="w-4 h-4" /> Suspicious URLs Detected
+            <Link2 className="w-4 h-4" /> {isNews ? 'Sources Found' : 'Suspicious URLs Detected'}
           </h4>
           <div className="space-y-2">
-            {result.urls_found.map((url, i) => (
+            {result.urls_found?.map((url, i) => (
               <div key={i} className="flex items-center gap-2 p-3 rounded-xl bg-scam/5 border border-scam/10 text-sm text-scam font-mono break-all">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 {url}

@@ -2,9 +2,10 @@ import { motion } from 'framer-motion';
 
 interface RiskMeterProps {
   score: number;
+  label?: string;
 }
 
-const RiskMeter = ({ score }: RiskMeterProps) => {
+const RiskMeter = ({ score, label = 'Risk Score' }: RiskMeterProps) => {
   const getColor = () => {
     if (score > 60) return 'text-scam';
     if (score > 30) return 'text-suspicious';
@@ -27,7 +28,7 @@ const RiskMeter = ({ score }: RiskMeterProps) => {
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <span className="text-4xl font-black text-foreground tabular-nums font-display">{score}</span>
-        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Risk Score</span>
+        <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest">{label}</span>
       </div>
     </div>
   );
