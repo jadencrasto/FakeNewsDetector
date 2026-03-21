@@ -1,0 +1,24 @@
+# Web Framework
+Flask==3.0.0
+Flask-CORS==4.0.0
+Flask-Limiter==3.5.0
+
+# Database
+psycopg2-binary==2.9.9
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# HTTP Requests
+requests==2.31.0
+
+# URL Parsing & Validation
+validators==0.22.0
+tldextract==5.1.1
+python-whois==0.8.0
+
+# NLP & Text Processing
+spacy==3.7.2
+
+# Production Server
+gunicorn==21.2.0
