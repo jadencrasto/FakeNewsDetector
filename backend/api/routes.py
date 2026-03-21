@@ -2,40 +2,69 @@
 API routes for scam detection
 """
 from flask import Blueprint, request, jsonify
-import hashlib
 import time
 from detector.analyzer import ScamAnalyzer
+from detector.news_analyzer import FakeNewsAnalyzer
+from database.models import Database
 
 # Create Blueprint
 api_bp = Blueprint('api', __name__)
-analyzer = ScamAnalyzer()
 
-# We'll import the detector in Part 3B
-# For now, we'll use mock responses
+# Initialize analyzer and database
+analyzer = ScamAnalyzer()
+news_analyzer = FakeNewsAnalyzer()
+db = Database()
+
+
+@api_bp.route('/verify-news', methods=['POST'])
+def verify_news():
+    """
+    Verify news article or claim for credibility
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'text' not in data:
+            return jsonify({
+                'error': 'Missing required field: text',
+                'message': 'Please provide a "text" field with news content to verify'
+            }), 400
+        
+        text = data['text'].strip()
+        url = data.get('url', None)
+        
+        if len(text) == 0:
+            return jsonify({
+                'error': 'Empty input',
+                'message': 'Text cannot be empty'
+            }), 400
+        
+        if len(text) > 10000:
+            return jsonify({
+                'error': 'Input too long',
+                'message': 'Text exceeds maximum length of 10000 characters'
+            }), 400
+        
+        # Analyze news
+        result = news_analyzer.analyze_news(text, url)
+        
+        return jsonify(result), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Verification failed',
+            'message': str(e)
+        }), 500
+
 
 @api_bp.route('/analyze', methods=['POST'])
 def analyze():
-    """
-    Main endpoint to analyze text/URL for scams
-    
-    Request Body (JSON):
-    {
-        "input": "text or URL to analyze"
-    }
-    
-    Response (JSON):
-    {
-        "risk_score": 85,
-        "classification": "scam",
-        "indicators": [...],
-        "recommendations": [...]
-    }
-    """
+    """Main endpoint to analyze text/URL for scams"""
     try:
-        # Get request data
         data = request.get_json()
         
-        # Validate input
         if not data or 'input' not in data:
             return jsonify({
                 'error': 'Missing required field: input',
@@ -44,7 +73,6 @@ def analyze():
         
         input_text = data['input'].strip()
         
-        # Validate input length
         if len(input_text) == 0:
             return jsonify({
                 'error': 'Empty input',
@@ -57,29 +85,36 @@ def analyze():
                 'message': 'Input exceeds maximum length of 5000 characters'
             }), 400
         
-        # 🎯 ACTUAL ANALYSIS HAPPENS HERE!
+        # Analyze
         result = analyzer.analyze(input_text)
+        
+        # Save to database
+        print(f"📝 Attempting to save scan to database...")
+        try:
+            result['ip_address'] = request.remote_addr
+            scan_id = db.save_scan(result)
+            result['scan_id'] = scan_id
+            print(f"✅ SUCCESS! Scan saved with ID: {scan_id}")
+        except Exception as db_error:
+            print(f"❌ DATABASE SAVE FAILED!")
+            print(f"Error: {db_error}")
+            import traceback
+            traceback.print_exc()
         
         return jsonify(result), 200
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({
             'error': 'Analysis failed',
             'message': str(e)
         }), 500
 
+
 @api_bp.route('/report', methods=['POST'])
 def report_scam():
-    """
-    Allow users to report scams or provide feedback
-    
-    Request Body (JSON):
-    {
-        "input": "scam message or URL",
-        "report_type": "false_positive|new_scam|verify_scam",
-        "comments": "user comments"
-    }
-    """
+    """Allow users to report scams"""
     try:
         data = request.get_json()
         
@@ -89,14 +124,28 @@ def report_scam():
                 'message': 'Please provide the scam content to report'
             }), 400
         
-        # TODO: Save to database in Part 3C
-        # For now, just acknowledge
-        
-        return jsonify({
-            'message': 'Report submitted successfully',
-            'status': 'pending_review',
-            'thank_you': 'Thank you for helping make the internet safer!'
-        }), 200
+        # Save report to database
+        try:
+            report_data = {
+                'scan_id': data.get('scan_id'),
+                'report_type': data.get('report_type', 'user_report'),
+                'is_scam': True,
+                'comments': data.get('comments', '')
+            }
+            report_id = db.save_report(report_data)
+            
+            return jsonify({
+                'message': 'Report submitted successfully',
+                'report_id': report_id,
+                'status': 'pending_review',
+                'thank_you': 'Thank you for helping make the internet safer!'
+            }), 200
+        except Exception as db_error:
+            print(f"⚠ Failed to save report: {db_error}")
+            return jsonify({
+                'message': 'Report acknowledged',
+                'status': 'pending'
+            }), 200
         
     except Exception as e:
         return jsonify({
@@ -107,36 +156,23 @@ def report_scam():
 
 @api_bp.route('/stats', methods=['GET'])
 def get_stats():
-    """
-    Get detection statistics
-    
-    Response (JSON):
-    {
-        "total_scans": 1000,
-        "scams_detected": 350,
-        "safe": 500,
-        "suspicious": 150
-    }
-    """
+    """Get detection statistics from database"""
     try:
-        # TODO: Get from database in Part 3C
-        # For now, return mock data
+        stats = db.get_statistics()
+        top_scams = db.get_top_scam_types(3)
         
-        stats = {
-            'total_scans': 1247,
-            'scams_detected': 423,
-            'suspicious': 135,
-            'safe': 689,
-            'avg_risk_score': 42.5,
+        return jsonify({
+            'total_scans': stats.get('total_scans', 0),
+            'scams_detected': stats.get('scams_detected', 0),
+            'suspicious': stats.get('suspicious', 0),
+            'safe': stats.get('safe', 0),
+            'avg_risk_score': float(stats.get('avg_risk_score', 0)) if stats.get('avg_risk_score') else 0,
             'last_updated': time.strftime('%Y-%m-%d %H:%M:%S'),
             'top_scam_types': [
-                {'type': 'UPI Fraud', 'count': 156},
-                {'type': 'Fake Job Offers', 'count': 89},
-                {'type': 'Phishing', 'count': 178}
+                {'type': scam['type'].replace('_', ' ').title(), 'count': scam['count']}
+                for scam in top_scams
             ]
-        }
-        
-        return jsonify(stats), 200
+        }), 200
         
     except Exception as e:
         return jsonify({
@@ -147,30 +183,19 @@ def get_stats():
 
 @api_bp.route('/history', methods=['GET'])
 def get_history():
-    """
-    Get scan history
-    (In production, this would require user authentication)
-    """
+    """Get recent scan history"""
     try:
-        # TODO: Get from database in Part 3C
-        # Mock data for now
+        recent_scans = db.get_recent_scans(limit=10)
         
-        history = [
-            {
-                'scan_id': 1,
-                'input': 'You won ₹50,000 in lottery...',
-                'risk_score': 85,
-                'classification': 'scam',
-                'timestamp': '2024-02-16 09:30:00'
-            },
-            {
-                'scan_id': 2,
-                'input': 'Your Amazon order has been shipped...',
-                'risk_score': 15,
-                'classification': 'safe',
-                'timestamp': '2024-02-16 10:15:00'
-            }
-        ]
+        history = []
+        for scan in recent_scans:
+            history.append({
+                'scan_id': scan['scan_id'],
+                'input': scan['input'],
+                'risk_score': scan['risk_score'],
+                'classification': scan['classification'],
+                'timestamp': scan['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+            })
         
         return jsonify({
             'history': history,

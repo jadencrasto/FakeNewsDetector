@@ -1,3 +1,5 @@
+export type AppMode = 'scam' | 'news';
+
 export interface Indicator {
   type: string;
   severity: 'critical' | 'high' | 'medium' | 'low';
@@ -6,7 +8,7 @@ export interface Indicator {
 
 export interface AnalysisResult {
   risk_score: number;
-  classification: 'safe' | 'suspicious' | 'scam';
+  classification: 'safe' | 'suspicious' | 'scam' | 'verified' | 'unverified' | 'false';
   indicators: Indicator[];
   recommendations: string[];
   urls_found: string[];
