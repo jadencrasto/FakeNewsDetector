@@ -6,6 +6,12 @@ import time
 from detector.analyzer import ScamAnalyzer
 from detector.news_analyzer import FakeNewsAnalyzer
 from database.models import Database
+from flask import send_file
+import io
+from utils.pdf_generator import PDFReportGenerator
+from utils.analytics import AnalyticsGenerator
+from flask_limiter import Limiter  # ← ADD THIS
+from flask_limiter.util import get_remote_address 
 
 # Create Blueprint
 api_bp = Blueprint('api', __name__)
@@ -14,39 +20,40 @@ api_bp = Blueprint('api', __name__)
 analyzer = ScamAnalyzer()
 news_analyzer = FakeNewsAnalyzer()
 db = Database()
+analytics = AnalyticsGenerator(db)
+# Initialize PDF generator
+pdf_generator = PDFReportGenerator()
 
+limiter = Limiter(  # ← ADD THIS
+    key_func=get_remote_address,
+    default_limits=["100 per hour"]
+)
 
 @api_bp.route('/verify-news', methods=['POST'])
 def verify_news():
-    """
-    Verify news article or claim for credibility
-    """
+    """Analyze news article for credibility"""
     try:
         data = request.get_json()
         
         if not data or 'text' not in data:
             return jsonify({
-                'error': 'Missing required field: text',
-                'message': 'Please provide a "text" field with news content to verify'
+                'error': 'Missing required field',
+                'message': 'Please provide text to analyze'
             }), 400
         
-        text = data['text'].strip()
-        url = data.get('url', None)
-        
-        if len(text) == 0:
-            return jsonify({
-                'error': 'Empty input',
-                'message': 'Text cannot be empty'
-            }), 400
-        
-        if len(text) > 10000:
-            return jsonify({
-                'error': 'Input too long',
-                'message': 'Text exceeds maximum length of 10000 characters'
-            }), 400
+        text = data['text']
+        url = data.get('url', '')
         
         # Analyze news
         result = news_analyzer.analyze_news(text, url)
+        result['input'] = text
+        
+        # ADD THIS SECTION - Save to database
+        print("📝 Attempting to save news scan to database...")
+        result['ip_address'] = request.remote_addr
+        scan_id = db.save_scan(result)
+        result['scan_id'] = scan_id
+        print(f"✅ SUCCESS! News scan saved with ID: {scan_id}")
         
         return jsonify(result), 200
         
@@ -54,10 +61,9 @@ def verify_news():
         import traceback
         traceback.print_exc()
         return jsonify({
-            'error': 'Verification failed',
+            'error': 'News verification failed',
             'message': str(e)
         }), 500
-
 
 @api_bp.route('/analyze', methods=['POST'])
 def analyze():
@@ -205,5 +211,80 @@ def get_history():
     except Exception as e:
         return jsonify({
             'error': 'Failed to fetch history',
+            'message': str(e)
+        }), 500
+    
+@api_bp.route('/export-pdf', methods=['POST'])
+def export_pdf():
+    """
+    Export scan result as PDF
+    
+    Request Body (JSON):
+    {
+        "result": { ... scan result data ... }
+    }
+    """
+    try:
+        data = request.get_json()
+        
+        if not data or 'result' not in data:
+            return jsonify({
+                'error': 'Missing result data',
+                'message': 'Please provide scan result to export'
+            }), 400
+        
+        result = data['result']
+        
+        # Generate PDF based on type
+        if 'credibility_score' in result:
+            # News verification report
+            pdf_bytes = pdf_generator.generate_news_report(result)
+            filename = 'news_credibility_report.pdf'
+        else:
+            # Scam detection report
+            pdf_bytes = pdf_generator.generate_scam_report(result)
+            filename = f"scam_report_{result.get('scan_id', 'unknown')}.pdf"
+        
+        # Create file-like object
+        pdf_file = io.BytesIO(pdf_bytes)
+        pdf_file.seek(0)
+        
+        # Send file
+        return send_file(
+            pdf_file,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )   
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'PDF generation failed',
+            'message': str(e)
+        }), 500
+    
+@api_bp.route('/analytics', methods=['GET'])
+@limiter.exempt
+def get_analytics():
+    """
+    Get comprehensive analytics for dashboard
+    
+    Response includes:
+    - Overview stats (total, detection rate, avg score)
+    - Classification breakdown (pie chart data)
+    - Scans timeline (line chart data)
+    - Top scam types (bar chart data)
+    """
+    try:
+        analytics_data = analytics.get_dashboard_stats()
+        
+        return jsonify(analytics_data), 200
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'error': 'Failed to fetch analytics',
             'message': str(e)
         }), 500

@@ -6,6 +6,7 @@ import Header from './Header';
 import InputSection from './InputSection';
 import ResultsSection from './ResultsSection';
 import StatsSection from './StatsSection';
+import AnalyticsDashboard from './AnalyticsDashboard';
 import Footer from './Footer';
 
 const ScamDetector = () => {
@@ -120,6 +121,7 @@ const ScamDetector = () => {
           {result && <ResultsSection result={result} onReset={handleReset} mode={mode} />}
         </AnimatePresence>
         <StatsSection />
+        <AnalyticsDashboard />
       </main>
       <Footer />
     </div>

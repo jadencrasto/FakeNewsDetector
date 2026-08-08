@@ -11,14 +11,74 @@ class TextAnalyzer:
     def __init__(self):
         self.indicators = ScamIndicators()
     
+    def _check_legitimate_patterns(self, text):
+        """
+        Check if message matches legitimate patterns
+        Returns: (is_legitimate, confidence, patterns)
+        """
+        text_lower = text.lower()
+        
+        # Legitimate patterns
+        legitimate_indicators = []
+        
+        # Pattern 1: Transaction notifications (debited/credited with specific amounts)
+        if any(word in text_lower for word in ['debited', 'credited', 'withdrawn', 'deposited']):
+            if 'rs.' in text_lower or '₹' in text or 'available balance' in text_lower:
+                legitimate_indicators.append('transaction_notification')
+        
+        # Pattern 2: Official customer care numbers
+        if '1800' in text or 'toll free' in text_lower or 'toll-free' in text_lower:
+            legitimate_indicators.append('official_helpline')
+        
+        # Pattern 3: Order/shipment tracking with specific IDs
+        order_patterns = ['order #', 'order number', 'awb:', 'tracking', 'shipment']
+        if any(pattern in text_lower for pattern in order_patterns):
+            official_domains = ['amazon.in', 'flipkart.com', 'bluedart', 'delhivery', 'dtdc']
+            if any(domain in text_lower for domain in official_domains):
+                legitimate_indicators.append('shipment_tracking')
+        
+        # Pattern 4: OTP with "do not share" warning
+        if 'otp' in text_lower:
+            if 'do not share' in text_lower or 'never share' in text_lower:
+                legitimate_indicators.append('secure_otp')
+        
+        # Pattern 5: Official domain in message
+        official_domains = [
+            'onlinesbi.sbi', 'sbi.co.in', 'hdfcbank.com', 'icicibank.com',
+            'amazon.in', 'flipkart.com', 'paytm.com', 'www.amazon', 'www.flipkart'
+        ]
+        if any(domain in text_lower for domain in official_domains):
+            legitimate_indicators.append('official_domain')
+        
+        # Pattern 6: Specific account/order reference numbers
+        if re.search(r'ending in \d{4}', text_lower) or re.search(r'#\d{3}-\d{7}-\d{7}', text):
+            legitimate_indicators.append('specific_reference')
+        
+        is_legitimate = len(legitimate_indicators) >= 2  # Need 2+ legitimate indicators
+        confidence = min(len(legitimate_indicators) * 15, 50)  # Max 40 point reduction
+        
+        return is_legitimate, confidence, legitimate_indicators
+
     def analyze_text(self, text):
         """
         Analyze text for scam indicators
         Returns: (score, indicators_list)
         """
+        # Check for legitimate patterns FIRST
+        is_legitimate, legit_confidence, legit_patterns = self._check_legitimate_patterns(text)
+        
         score = 0
         indicators_list = []
         text_lower = text.lower()
+        
+        # If highly legitimate, add positive indicators
+        if is_legitimate:
+            for pattern in legit_patterns:
+                indicators_list.append({
+                    'type': 'legitimate_pattern',
+                    'severity': 'positive',
+                    'description': f'Legitimate pattern: {pattern.replace("_", " ")}'
+                })
         
         # Check 1: Urgency keywords (increased from 8 to 15)
         urgency_score, urgency_indicators = self._check_keywords(
@@ -99,6 +159,10 @@ class TextAnalyzer:
         phone_score, phone_indicators = self._check_phone_numbers(text)
         score += phone_score
         indicators_list.extend(phone_indicators)
+        
+        # Apply legitimate pattern reduction AFTER calculating suspicious score
+        if is_legitimate:
+            score = max(score - legit_confidence, 0)  # Reduce score, but don't go below 0
         
         return min(score, 60), indicators_list  # Cap at 60
     
